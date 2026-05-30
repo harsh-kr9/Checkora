@@ -200,3 +200,45 @@ Allows players to offer or accept a draw agreement in PvP mode.
       "game_status": "draw_agreement" // Only present if action was "accept"
     }
     ```
+
+---
+
+## 9. Cleanup Stale Games (Cron Job)
+Removes abandoned games from user sessions and logs an execution audit trail. This endpoint is secure and requires token authentication via the `Authorization` header.
+
+*   **URL:** `/api/cron/cleanup-stale-games/`
+*   **Method:** `POST`
+*   **Headers:**
+    *   `Authorization: Bearer <CRON_SECRET>`
+*   **Success Response (Status: 200 OK):**
+    ```json
+    {
+      "status": "success",
+      "deleted_games": 1,
+      "resigned_games": 0
+    }
+    ```
+*   **Error Response (Status: 401 Unauthorized):**
+    ```json
+    {
+      "error": "Unauthorized"
+    }
+    ```
+*   **Error Response (Status: 500 Internal Server Error):**
+    ```json
+    {
+      "status": "error",
+      "message": "Error details..."
+    }
+    ```
+
+### Audit Record Database Schema
+Each execution creates a `CleanupAudit` database entry with the following fields:
+*   `timestamp` (DateTime): Time of execution start
+*   `status` (String): `"success"` or `"failed"`
+*   `stale_sessions_detected` (Integer): Total stale games identified
+*   `sessions_removed` (Integer): Count of deleted games (low engagement, <5 moves)
+*   `sessions_resigned` (Integer): Count of resigned games (high engagement, >=5 moves)
+*   `duration` (Float): Duration in seconds
+*   `error_message` (Text, optional): Error details in case of failure
+

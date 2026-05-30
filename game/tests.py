@@ -1740,3 +1740,76 @@ class GameResultMoveHistoryTest(TestCase):
         self.assertEqual(res.winner, 'white')
         self.assertEqual(len(res.moves), 1)
         self.assertEqual(res.moves[0]['notation'], 'e4#')
+
+
+class CleanupAuditTest(TestCase):
+    def setUp(self):
+        from game.models import CleanupAudit
+        self.CleanupAudit = CleanupAudit
+        self.url = '/api/cron/cleanup-stale-games/'
+        self.secret = 'test_secret_123'
+
+    @override_settings(CRON_SECRET='test_secret_123')
+    def test_cleanup_audit_success(self):
+        from django.contrib.sessions.backends.db import SessionStore
+        import time
+        from game.services import cleanup_stale_games
+
+        # 1. Create a stale game with Rule A (Low Engagement)
+        s1 = SessionStore()
+        s1.create()
+        s1['game'] = {
+            'game_status': 'active',
+            'move_history': [1, 2, 3],
+            'last_ts': time.time() - (50 * 3600)
+        }
+        s1.save()
+
+        # 2. Create a stale game with Rule B (High Engagement)
+        s2 = SessionStore()
+        s2.create()
+        s2['game'] = {
+            'game_status': 'active',
+            'move_history': [1, 2, 3, 4, 5, 6],
+            'current_turn': 'white',
+            'player_color': 'white',
+            'mode': 'pvp',
+            'last_ts': time.time() - (50 * 3600)
+        }
+        s2.save()
+
+        # Run cleanup
+        deleted, resigned = cleanup_stale_games()
+        self.assertEqual(deleted, 1)
+        self.assertEqual(resigned, 1)
+
+        # Check audit trail
+        self.assertEqual(self.CleanupAudit.objects.count(), 1)
+        audit = self.CleanupAudit.objects.first()
+        self.assertEqual(audit.status, 'success')
+        self.assertEqual(audit.stale_sessions_detected, 2)
+        self.assertEqual(audit.sessions_removed, 1)
+        self.assertEqual(audit.sessions_resigned, 1)
+        self.assertGreaterEqual(audit.duration, 0.0)
+        self.assertIsNone(audit.error_message)
+
+    @override_settings(CRON_SECRET='test_secret_123')
+    def test_cleanup_audit_failure(self):
+        from game.services import cleanup_stale_games
+
+        # Mock Session.objects.iterator to raise an exception
+        from django.contrib.sessions.models import Session
+        with mock.patch.object(Session.objects, 'iterator', side_effect=Exception("Database connection lost")):
+            with self.assertRaises(Exception):
+                cleanup_stale_games()
+
+        # Check failed audit trail
+        self.assertEqual(self.CleanupAudit.objects.count(), 1)
+        audit = self.CleanupAudit.objects.first()
+        self.assertEqual(audit.status, 'failed')
+        self.assertEqual(audit.stale_sessions_detected, 0)
+        self.assertEqual(audit.sessions_removed, 0)
+        self.assertEqual(audit.sessions_resigned, 0)
+        self.assertIn("Database connection lost", audit.error_message)
+        self.assertGreaterEqual(audit.duration, 0.0)
+

@@ -40,3 +40,24 @@ class GameResult(models.Model):
 
     def __str__(self):
         return f"{self.mode} | {self.winner} | {self.end_reason}"
+
+
+class CleanupAudit(models.Model):
+    STATUS_CHOICES = [
+        ("success", "Success"),
+        ("failed", "Failed"),
+    ]
+    timestamp = models.DateTimeField(auto_now_add=True)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES)
+    stale_sessions_detected = models.IntegerField(default=0)
+    sessions_removed = models.IntegerField(default=0)
+    sessions_resigned = models.IntegerField(default=0)
+    duration = models.FloatField(help_text="Duration in seconds", default=0.0)
+    error_message = models.TextField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-timestamp"]
+
+    def __str__(self):
+        return f"Cleanup {self.timestamp} | {self.status} | detected: {self.stale_sessions_detected}"
+
